@@ -111,6 +111,47 @@ account_status,LOW,STATUS
 created_at,LOW,AUDIT
 updated_at,LOW,AUDIT
 
+
+CREATE TABLE customers (
+    cust_id VARCHAR(50),                  -- variation of user_id
+    mail_address VARCHAR(100),            -- variation of email_address
+    user_firstname VARCHAR(50),           -- variation of first_name
+    user_lastname VARCHAR(50),            -- variation of last_name
+    mobile_number VARCHAR(20),            -- variation of phone_number
+    residential_address TEXT,             -- variation of address_line1
+    customer_city VARCHAR(50),            -- variation of city
+    cust_country VARCHAR(50),             -- variation of country
+    date_of_birth DATE,                   -- variation of birth_date
+    customer_age INT,                     -- variation of age
+    sex VARCHAR(10),                      -- variation of gender
+    credit_card VARCHAR(16)               -- variation of credit_card_number
+);
+
+CREATE TABLE payments (
+    payment_id VARCHAR(50),
+    card_number VARCHAR(16),              -- variation of credit_card_number
+    card_valid_until DATE,                -- variation of card_expiry
+    security_code VARCHAR(3),             -- variation of cvv
+    wallet_balance DECIMAL(10,2),         -- variation of account_balance
+    payment_amount DECIMAL(10,2),         -- variation of transaction_amount
+    transaction_reference VARCHAR(50)      -- variation of order_id
+);
+
+CREATE TABLE products_inventory (
+    prod_identifier VARCHAR(50),          -- variation of product_id
+    item_name VARCHAR(100),               -- variation of product_name
+    item_details TEXT,                    -- variation of product_description
+    ship_method VARCHAR(50),              -- variation of shipping_method
+    shipment_tracking VARCHAR(50),        -- variation of tracking_number
+    visitor_ip VARCHAR(45),               -- variation of ip_address
+    browser_info TEXT,                    -- variation of user_agent
+    user_pass_hash VARCHAR(128),          -- variation of password_hash
+    login_count INT,                      -- variation of login_attempts
+    acc_state VARCHAR(20),                -- variation of account_status
+    record_created TIMESTAMP,             -- variation of created_at
+    last_modified TIMESTAMP               -- variation of updated_at
+);
+
 CREATE TABLE users (
     user_identifier VARCHAR(50),
     user_mail VARCHAR(100),
