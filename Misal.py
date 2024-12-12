@@ -1,3 +1,42 @@
+def _preprocess_text(self, texts: List[str], is_training: bool = False) -> np.ndarray:
+    """Create combined embeddings using SBERT and TF-IDF."""
+    # Get SBERT embeddings
+    embeddings = self.transformer.encode(
+        texts, 
+        show_progress_bar=False, 
+        convert_to_numpy=True
+    )
+    
+    # Get TF-IDF features
+    if is_training:
+        # During training, fit and transform
+        tfidf_features = self.tfidf.fit_transform(texts)
+    else:
+        # During prediction, only transform
+        tfidf_features = self.tfidf.transform(texts)
+    
+    # Convert sparse matrix to dense for TF-IDF
+    tfidf_dense = tfidf_features.toarray()
+    
+    # Combine features
+    combined_features = np.hstack((embeddings, tfidf_dense))
+    return combined_features
+
+def train(self, master_csv_path: str):
+    """Train the classifier using the master CSV."""
+    try:
+        # Load training data
+        df = pd.read_csv(master_csv_path)
+        logger.info(f"Loaded {len(df)} rows from master CSV")
+
+        # Preprocess features with is_training=True
+        X = self._preprocess_text(df['attribute'].tolist(), is_training=True)
+        
+        # Rest of the training code remains same...
+
+
+
+
 def train(self, master_csv_path: str):
     """Train the classifier using the master CSV."""
     try:
