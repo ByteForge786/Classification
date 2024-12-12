@@ -36,3 +36,83 @@ def train(self, master_csv_path: str):
     except Exception as e:
         logger.error(f"Error during model training: {e}")
         raise
+
+
+
+
+attribute,sensitivity,concept
+user_id,HIGH,CUSTOMER_INFO
+email_address,HIGH,CONTACT_INFO
+first_name,MEDIUM,PERSONAL_INFO
+last_name,MEDIUM,PERSONAL_INFO
+phone_number,HIGH,CONTACT_INFO
+address_line1,HIGH,ADDRESS
+city,MEDIUM,ADDRESS
+country,LOW,ADDRESS
+birth_date,HIGH,PERSONAL_INFO
+age,MEDIUM,DEMOGRAPHIC
+gender,MEDIUM,DEMOGRAPHIC
+credit_card_number,HIGH,PAYMENT
+card_expiry,HIGH,PAYMENT
+cvv,HIGH,PAYMENT
+account_balance,HIGH,FINANCIAL
+transaction_amount,MEDIUM,FINANCIAL
+order_id,LOW,TRANSACTION
+product_id,LOW,PRODUCT
+product_name,LOW,PRODUCT
+product_description,LOW,PRODUCT
+order_date,LOW,TRANSACTION
+shipping_method,LOW,SHIPPING
+tracking_number,MEDIUM,SHIPPING
+ip_address,HIGH,TECHNICAL
+user_agent,MEDIUM,TECHNICAL
+password_hash,HIGH,SECURITY
+login_attempts,MEDIUM,SECURITY
+account_status,LOW,STATUS
+created_at,LOW,AUDIT
+updated_at,LOW,AUDIT
+
+CREATE TABLE users (
+    user_identifier VARCHAR(50),
+    user_mail VARCHAR(100),
+    fname VARCHAR(50),
+    lname VARCHAR(50),
+    contact_num VARCHAR(20),
+    home_address TEXT,
+    dob DATE,
+    user_gender VARCHAR(10),
+    acc_balance DECIMAL(10,2)
+);
+
+CREATE TABLE transactions (
+    txn_id VARCHAR(50),
+    user_ref VARCHAR(50),
+    purchase_date TIMESTAMP,
+    amount DECIMAL(10,2),
+    card_number VARCHAR(16),
+    card_expiration DATE,
+    security_code VARCHAR(3)
+);
+
+CREATE TABLE products (
+    item_id VARCHAR(50),
+    item_name VARCHAR(100),
+    item_desc TEXT,
+    price DECIMAL(10,2),
+    stock_qty INT,
+    category VARCHAR(50)
+);
+
+# Configuration
+master_csv_path = "master.csv"
+sql_file_path = "create_statements.sql"
+model_dir = "trained_models"
+output_csv_path = "predictions.csv"
+
+# Create and train classifier
+classifier = AdvancedColumnClassifier()
+classifier.train(master_csv_path)
+classifier.save_model(model_dir)
+
+# Process SQL and get predictions
+process_sql_file(sql_file_path, classifier, output_csv_path)
