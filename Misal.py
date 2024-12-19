@@ -1,3 +1,244 @@
+[Previous code remains same until evaluate_predictions method, which is replaced with below]
+
+    def evaluate_predictions(self, master_csv: str, predictions_csv: str) -> Dict:
+        """
+        Evaluate predictions against master data, treating each attribute as a single entry.
+        Handles both single and multiple prediction cases.
+        """
+        master_df = pd.read_csv(master_csv)
+        pred_df = pd.read_csv(predictions_csv)
+        
+        # Create master data dictionary
+        master_dict = {}
+        for _, row in master_df.iterrows():
+            cleaned_attr = clean_attribute_name(row['attribute'])
+            if cleaned_attr not in master_dict:
+                master_dict[cleaned_attr] = []
+            master_dict[cleaned_attr].append({
+                'original_attribute': row['attribute'],
+                'sensitivity': row['sensitivity'],
+                'concept': row['concept'],
+                'source': row.get('source', None),
+                'domain': row.get('domain', None)
+            })
+
+        # Initialize metrics
+        metrics = {
+            'total_attributes': len(set(pred_df['input_attribute'])),  # Unique attributes
+            'single_pred_attributes': 0,
+            'multi_pred_attributes': 0,
+            'single_exact_matches': 0,
+            'single_semantic_matches': 0,
+            'multi_exact_matches': 0,
+            'multi_semantic_matches': 0,
+            'correct_attributes': 0,
+            'failed_attributes': 0
+        }
+
+        failures = []
+        successes = []
+
+        # Process each unique attribute
+        for input_attr, group in pred_df.groupby('input_attribute'):
+            cleaned_input = clean_attribute_name(input_attr)
+            is_multi_pred = len(group) > 1
+            pred_records = group.to_dict('records')
+            
+            # Update single/multi prediction counts
+            if is_multi_pred:
+                metrics['multi_pred_attributes'] += 1
+            else:
+                metrics['single_pred_attributes'] += 1
+
+            # Get master data variations
+            master_variations = master_dict.get(cleaned_input, [])
+            
+            if not master_variations:
+                # No master data found
+                metrics['failed_attributes'] += 1
+                failures.append({
+                    'attribute': input_attr,
+                    'failure_type': 'No master data match',
+                    'prediction_type': 'multiple' if is_multi_pred else 'single',
+                    'predictions': pred_records,
+                    'master_values': []
+                })
+                continue
+
+            # Evaluate based on prediction type
+            if is_multi_pred:
+                # Multiple predictions case
+                all_matches_correct = True
+                match_results = []
+
+                for pred in pred_records:
+                    # Check if this prediction matches any master variation
+                    pred_correct = False
+                    matched_master = None
+                    
+                    for master_var in master_variations:
+                        if (pred['sensitivity'] == master_var['sensitivity'] and 
+                            pred['concept'] == master_var['concept']):
+                            pred_correct = True
+                            matched_master = master_var
+                            break
+                    
+                    match_results.append({
+                        'predicted': pred,
+                        'correct': pred_correct,
+                        'matched_master': matched_master
+                    })
+                    
+                    if not pred_correct:
+                        all_matches_correct = False
+
+                if all_matches_correct:
+                    metrics['correct_attributes'] += 1
+                    if all(p['match_type'] == 'exact' for p in pred_records):
+                        metrics['multi_exact_matches'] += 1
+                    else:
+                        metrics['multi_semantic_matches'] += 1
+                    successes.append({
+                        'attribute': input_attr,
+                        'prediction_type': 'multiple',
+                        'matches': match_results
+                    })
+                else:
+                    metrics['failed_attributes'] += 1
+                    failures.append({
+                        'attribute': input_attr,
+                        'failure_type': 'Incorrect predictions',
+                        'prediction_type': 'multiple',
+                        'match_results': match_results,
+                        'master_values': master_variations
+                    })
+
+            else:
+                # Single prediction case
+                pred = pred_records[0]
+                pred_correct = False
+                
+                for master_var in master_variations:
+                    if (pred['sensitivity'] == master_var['sensitivity'] and 
+                        pred['concept'] == master_var['concept']):
+                        pred_correct = True
+                        break
+
+                if pred_correct:
+                    metrics['correct_attributes'] += 1
+                    if pred['match_type'] == 'exact':
+                        metrics['single_exact_matches'] += 1
+                    else:
+                        metrics['single_semantic_matches'] += 1
+                    successes.append({
+                        'attribute': input_attr,
+                        'prediction_type': 'single',
+                        'prediction': pred,
+                        'master_match': master_var
+                    })
+                else:
+                    metrics['failed_attributes'] += 1
+                    failures.append({
+                        'attribute': input_attr,
+                        'failure_type': 'Incorrect prediction',
+                        'prediction_type': 'single',
+                        'prediction': pred,
+                        'master_values': master_variations
+                    })
+
+        # Generate detailed failure report
+        if failures:
+            failures_df = pd.DataFrame([{
+                'attribute': f['attribute'],
+                'failure_type': f['failure_type'],
+                'prediction_type': f['prediction_type'],
+                'predictions': str(f.get('predictions', f.get('prediction', ''))),
+                'master_values': str(f['master_values']),
+                'match_results': str(f.get('match_results', ''))
+            } for f in failures])
+            
+            failures_df.to_csv('failures.csv', index=False)
+
+        # Calculate accuracy metrics
+        total_attrs = metrics['total_attributes']
+        evaluation_results = {
+            'Overall Metrics': {
+                'Total Unique Attributes': total_attrs,
+                'Overall Accuracy': (metrics['correct_attributes'] / total_attrs * 100),
+                'Failed Attributes': metrics['failed_attributes']
+            },
+            'Single Prediction Metrics': {
+                'Total Attributes': metrics['single_pred_attributes'],
+                'Exact Matches': metrics['single_exact_matches'],
+                'Semantic Matches': metrics['single_semantic_matches'],
+                'Accuracy': (
+                    (metrics['single_exact_matches'] + metrics['single_semantic_matches']) / 
+                    metrics['single_pred_attributes'] * 100 if metrics['single_pred_attributes'] > 0 else 0
+                )
+            },
+            'Multiple Prediction Metrics': {
+                'Total Attributes': metrics['multi_pred_attributes'],
+                'Exact Matches': metrics['multi_exact_matches'],
+                'Semantic Matches': metrics['multi_semantic_matches'],
+                'Accuracy': (
+                    (metrics['multi_exact_matches'] + metrics['multi_semantic_matches']) / 
+                    metrics['multi_pred_attributes'] * 100 if metrics['multi_pred_attributes'] > 0 else 0
+                )
+            },
+            'Detailed Failures': failures,
+            'Successful Matches': successes
+        }
+
+        return evaluation_results
+
+[Previous code remains same until process_sql_file method, where we update the evaluation logging part:]
+
+        # Evaluate predictions
+        evaluation = self.evaluate_predictions(config['master_csv'], output_csv)
+        
+        logger.info("\nEvaluation Results:")
+        logger.info("==================")
+        
+        logger.info("\nOverall Metrics:")
+        logger.info(f"Total Unique Attributes: {evaluation['Overall Metrics']['Total Unique Attributes']}")
+        logger.info(f"Overall Accuracy: {evaluation['Overall Metrics']['Overall Accuracy']:.2f}%")
+        logger.info(f"Failed Attributes: {evaluation['Overall Metrics']['Failed Attributes']}")
+        
+        logger.info("\nSingle Prediction Attributes:")
+        logger.info(f"Total: {evaluation['Single Prediction Metrics']['Total Attributes']}")
+        logger.info(f"Exact Matches: {evaluation['Single Prediction Metrics']['Exact Matches']}")
+        logger.info(f"Semantic Matches: {evaluation['Single Prediction Metrics']['Semantic Matches']}")
+        logger.info(f"Accuracy: {evaluation['Single Prediction Metrics']['Accuracy']:.2f}%")
+        
+        logger.info("\nMultiple Prediction Attributes:")
+        logger.info(f"Total: {evaluation['Multiple Prediction Metrics']['Total Attributes']}")
+        logger.info(f"Exact Matches: {evaluation['Multiple Prediction Metrics']['Exact Matches']}")
+        logger.info(f"Semantic Matches: {evaluation['Multiple Prediction Metrics']['Semantic Matches']}")
+        logger.info(f"Accuracy: {evaluation['Multiple Prediction Metrics']['Accuracy']:.2f}%")
+        
+        logger.info("\nFailure Summary:")
+        if evaluation['Detailed Failures']:
+            failure_types = {}
+            for failure in evaluation['Detailed Failures']:
+                ftype = f"{failure['failure_type']} ({failure['prediction_type']})"
+                if ftype not in failure_types:
+                    failure_types[ftype] = []
+                failure_types[ftype].append(failure['attribute'])
+            
+            for ftype, attributes in failure_types.items():
+                logger.info(f"\n{ftype}:")
+                for attr in attributes:
+                    logger.info(f"- {attr}")
+        else:
+            logger.info("No failures detected")
+
+
+
+
+
+
+
+
 [Previous code remains exactly the same until the evaluate_predictions method, which is replaced with below]
 
     def evaluate_predictions(self, master_csv: str, predictions_csv: str) -> Dict:
