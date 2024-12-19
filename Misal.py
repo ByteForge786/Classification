@@ -1,3 +1,196 @@
+def evaluate_predictions(self, master_csv: str, predictions_csv: str) -> Dict:
+        """
+        Evaluate predictions treating each attribute as one entry regardless of duplicates.
+        """
+        master_df = pd.read_csv(master_csv)
+        pred_df = pd.read_csv(predictions_csv)
+        
+        # Count unique attributes from CREATE statements (input_attribute column)
+        total_input_attributes = len(set(pred_df['input_attribute']))
+        
+        metrics = {
+            'total_attributes': total_input_attributes,
+            'successful_predictions': 0,
+            'failed_predictions': 0,
+            'exact_matches': 0,
+            'semantic_matches': 0
+        }
+        
+        failures = []
+        successes = []
+        
+        # Process each unique input attribute
+        for input_attr, group in pred_df.groupby('input_attribute'):
+            cleaned_input = clean_attribute_name(input_attr)
+            is_multi_pred = len(group) > 1
+            
+            # Get all master variations for this attribute
+            master_variations = master_df[
+                master_df['attribute'].apply(clean_attribute_name) == cleaned_input
+            ].to_dict('records')
+            
+            if not master_variations:
+                metrics['failed_predictions'] += 1
+                failures.append({
+                    'attribute': input_attr,
+                    'reason': 'No master data match found',
+                    'predictions': group[['matched_attribute', 'sensitivity', 'concept']].to_dict('records')
+                })
+                continue
+            
+            if is_multi_pred:
+                # Handle multiple predictions case
+                all_predictions_match = True
+                failed_variations = []
+                
+                for _, pred in group.iterrows():
+                    pred_matched = False
+                    for master in master_variations:
+                        if (pred['sensitivity'] == master['sensitivity'] and 
+                            pred['concept'] == master['concept']):
+                            pred_matched = True
+                            break
+                    
+                    if not pred_matched:
+                        all_predictions_match = False
+                        failed_variations.append({
+                            'predicted_sensitivity': pred['sensitivity'],
+                            'predicted_concept': pred['concept'],
+                            'expected_variations': [
+                                {'sensitivity': m['sensitivity'], 'concept': m['concept']} 
+                                for m in master_variations
+                            ]
+                        })
+                
+                if all_predictions_match:
+                    metrics['successful_predictions'] += 1
+                    if all(p['match_type'] == 'exact' for _, p in group.iterrows()):
+                        metrics['exact_matches'] += 1
+                    else:
+                        metrics['semantic_matches'] += 1
+                    successes.append({
+                        'attribute': input_attr,
+                        'type': 'multiple prediction - all matched'
+                    })
+                else:
+                    metrics['failed_predictions'] += 1
+                    failures.append({
+                        'attribute': input_attr,
+                        'reason': 'Multiple prediction - some variations failed',
+                        'failed_variations': failed_variations,
+                        'master_variations': [
+                            {'sensitivity': m['sensitivity'], 'concept': m['concept']} 
+                            for m in master_variations
+                        ]
+                    })
+            
+            else:
+                # Handle single prediction case
+                pred = group.iloc[0]
+                pred_matched = False
+                
+                for master in master_variations:
+                    if (pred['sensitivity'] == master['sensitivity'] and 
+                        pred['concept'] == master['concept']):
+                        pred_matched = True
+                        break
+                
+                if pred_matched:
+                    metrics['successful_predictions'] += 1
+                    if pred['match_type'] == 'exact':
+                        metrics['exact_matches'] += 1
+                    else:
+                        metrics['semantic_matches'] += 1
+                    successes.append({
+                        'attribute': input_attr,
+                        'type': 'single prediction'
+                    })
+                else:
+                    metrics['failed_predictions'] += 1
+                    failures.append({
+                        'attribute': input_attr,
+                        'reason': 'Single prediction - no match',
+                        'prediction': {
+                            'sensitivity': pred['sensitivity'],
+                            'concept': pred['concept']
+                        },
+                        'master_variations': [
+                            {'sensitivity': m['sensitivity'], 'concept': m['concept']} 
+                            for m in master_variations
+                        ]
+                    })
+        
+        # Calculate accuracy
+        accuracy = (metrics['successful_predictions'] / metrics['total_attributes']) * 100 if metrics['total_attributes'] > 0 else 0
+        
+        # Generate detailed failures CSV
+        if failures:
+            failures_df = pd.DataFrame([{
+                'attribute': f['attribute'],
+                'reason': f['reason'],
+                'predictions': str(f.get('prediction', f.get('failed_variations', ''))),
+                'master_variations': str(f['master_variations'])
+            } for f in failures])
+            failures_df.to_csv('failures.csv', index=False)
+        
+        evaluation_results = {
+            'metrics': {
+                'total_input_attributes': metrics['total_attributes'],
+                'successful_predictions': metrics['successful_predictions'],
+                'failed_predictions': metrics['failed_predictions'],
+                'exact_matches': metrics['exact_matches'],
+                'semantic_matches': metrics['semantic_matches'],
+                'accuracy': accuracy
+            },
+            'failures': failures
+        }
+        
+        # Print detailed evaluation report
+        logger.info("\nEvaluation Results:")
+        logger.info("==================")
+        logger.info(f"Total Input Attributes: {metrics['total_attributes']}")
+        logger.info(f"Successful Predictions: {metrics['successful_predictions']}")
+        logger.info(f"Failed Predictions: {metrics['failed_predictions']}")
+        logger.info(f"Exact Matches: {metrics['exact_matches']}")
+        logger.info(f"Semantic Matches: {metrics['semantic_matches']}")
+        logger.info(f"Overall Accuracy: {accuracy:.2f}%")
+        
+        if failures:
+            logger.info("\nFailure Details:")
+            for failure in failures:
+                logger.info(f"\nAttribute: {failure['attribute']}")
+                logger.info(f"Reason: {failure['reason']}")
+                if 'failed_variations' in failure:
+                    logger.info("Failed Predictions:")
+                    for var in failure['failed_variations']:
+                        logger.info(f"  Predicted: (Sensitivity: {var['predicted_sensitivity']}, "
+                                  f"Concept: {var['predicted_concept']})")
+                        logger.info("  Expected one of:")
+                        for master_var in var['expected_variations']:
+                            logger.info(f"    - Sensitivity: {master_var['sensitivity']}, "
+                                      f"Concept: {master_var['concept']}")
+                elif 'prediction' in failure:
+                    logger.info(f"Predicted: (Sensitivity: {failure['prediction']['sensitivity']}, "
+                              f"Concept: {failure['prediction']['concept']})")
+                    logger.info("Expected one of:")
+                    for var in failure['master_variations']:
+                        logger.info(f"  - Sensitivity: {var['sensitivity']}, "
+                                  f"Concept: {var['concept']}")
+        
+        return evaluation_results
+
+
+
+
+
+
+
+
+
+
+
+
+
 [Previous code remains same until evaluate_predictions method, which is replaced with below]
 
     def evaluate_predictions(self, master_csv: str, predictions_csv: str) -> Dict:
