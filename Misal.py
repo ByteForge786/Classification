@@ -2,6 +2,228 @@
 
     def evaluate_predictions(self, master_csv: str, predictions_csv: str) -> Dict:
         """
+        Evaluate predictions against master data, tracking failures and generating failure report.
+        """
+        master_df = pd.read_csv(master_csv)
+        pred_df = pd.read_csv(predictions_csv)
+        
+        # Create a dictionary of master data with cleaned attribute names
+        master_dict = {}
+        for _, row in master_df.iterrows():
+            cleaned_attr = clean_attribute_name(row['attribute'])
+            if cleaned_attr not in master_dict:
+                master_dict[cleaned_attr] = []
+            master_dict[cleaned_attr].append({
+                'original_attribute': row['attribute'],
+                'sensitivity': row['sensitivity'],
+                'concept': row['concept'],
+                'source': row.get('source', None),
+                'domain': row.get('domain', None)
+            })
+
+        # Initialize counters and failure tracking
+        metrics = {
+            'total_predictions': len(pred_df),
+            'exact_matches': 0,
+            'correct_sensitivity': 0,
+            'correct_concept': 0,
+            'total_single_pred': 0,
+            'total_multi_pred': 0,
+            'single_sensitivity_correct': 0,
+            'single_concept_correct': 0,
+            'multi_sensitivity_correct': 0,
+            'multi_concept_correct': 0
+        }
+
+        failures = []
+
+        # Group predictions by input_attribute to handle multiple predictions
+        pred_groups = pred_df.groupby('input_attribute')
+        
+        for input_attr, group in pred_groups:
+            cleaned_input = clean_attribute_name(input_attr)
+            is_multi_pred = len(group) > 1
+            
+            if is_multi_pred:
+                metrics['total_multi_pred'] += 1
+            else:
+                metrics['total_single_pred'] += 1
+
+            # Get master data variations for this attribute
+            master_variations = master_dict.get(cleaned_input, [])
+            
+            if not master_variations:
+                # Track as failure - No master data found
+                failures.append({
+                    'input_attribute': input_attr,
+                    'failure_type': 'No master data match',
+                    'predicted_values': group[['matched_attribute', 'sensitivity', 'concept']].to_dict('records'),
+                    'master_values': [],
+                    'is_multi_pred': is_multi_pred
+                })
+                continue
+
+            # For exact matches
+            if any(row['match_type'] == 'exact' for _, row in group.iterrows()):
+                metrics['exact_matches'] += 1
+            else:
+                # Track as failure - No exact match
+                failures.append({
+                    'input_attribute': input_attr,
+                    'failure_type': 'No exact match',
+                    'predicted_values': group[['matched_attribute', 'sensitivity', 'concept']].to_dict('records'),
+                    'master_values': master_variations,
+                    'is_multi_pred': is_multi_pred
+                })
+
+            # Check predictions against all possible master variations
+            sensitivity_correct = False
+            concept_correct = False
+            
+            for _, pred_row in group.iterrows():
+                # Check if prediction matches any master variation
+                for master_var in master_variations:
+                    if pred_row['sensitivity'] == master_var['sensitivity']:
+                        sensitivity_correct = True
+                    if pred_row['concept'] == master_var['concept']:
+                        concept_correct = True
+                        
+                    if sensitivity_correct and concept_correct:
+                        break
+                        
+                if sensitivity_correct and concept_correct:
+                    break
+            
+            # Track failures for sensitivity and concept
+            if not sensitivity_correct:
+                failures.append({
+                    'input_attribute': input_attr,
+                    'failure_type': 'Incorrect sensitivity',
+                    'predicted_values': group[['matched_attribute', 'sensitivity', 'concept']].to_dict('records'),
+                    'master_values': master_variations,
+                    'is_multi_pred': is_multi_pred
+                })
+
+            if not concept_correct:
+                failures.append({
+                    'input_attribute': input_attr,
+                    'failure_type': 'Incorrect concept',
+                    'predicted_values': group[['matched_attribute', 'sensitivity', 'concept']].to_dict('records'),
+                    'master_values': master_variations,
+                    'is_multi_pred': is_multi_pred
+                })
+
+            # Update counters based on prediction type
+            if sensitivity_correct:
+                metrics['correct_sensitivity'] += 1
+                if is_multi_pred:
+                    metrics['multi_sensitivity_correct'] += 1
+                else:
+                    metrics['single_sensitivity_correct'] += 1
+            
+            if concept_correct:
+                metrics['correct_concept'] += 1
+                if is_multi_pred:
+                    metrics['multi_concept_correct'] += 1
+                else:
+                    metrics['single_concept_correct'] += 1
+
+        # Generate failures CSV
+        if failures:
+            failures_df = pd.DataFrame([{
+                'input_attribute': f['input_attribute'],
+                'failure_type': f['failure_type'],
+                'predicted_values': str(f['predicted_values']),
+                'master_values': str(f['master_values']),
+                'is_multiple_prediction': f['is_multi_pred']
+            } for f in failures])
+            
+            failures_df.to_csv('failures.csv', index=False)
+            logger.info(f"\nGenerated failures.csv with {len(failures)} failure records")
+
+        # Calculate percentages
+        total = metrics['total_predictions']
+        single_total = metrics['total_single_pred'] or 1
+        multi_total = metrics['total_multi_pred'] or 1
+
+        evaluation_results = {
+            'Overall Metrics': {
+                'Total Predictions': total,
+                'Total Failures': len(failures),
+                'Exact Match Percentage': (metrics['exact_matches'] / total) * 100,
+                'Overall Sensitivity Accuracy': (metrics['correct_sensitivity'] / total) * 100,
+                'Overall Concept Accuracy': (metrics['correct_concept'] / total) * 100
+            },
+            'Single Prediction Cases': {
+                'Total Count': metrics['total_single_pred'],
+                'Sensitivity Accuracy': (metrics['single_sensitivity_correct'] / single_total) * 100,
+                'Concept Accuracy': (metrics['single_concept_correct'] / single_total) * 100
+            },
+            'Multiple Prediction Cases': {
+                'Total Count': metrics['total_multi_pred'],
+                'Sensitivity Accuracy': (metrics['multi_sensitivity_correct'] / multi_total) * 100,
+                'Concept Accuracy': (metrics['multi_concept_correct'] / multi_total) * 100
+            },
+            'Failures': failures
+        }
+
+        return evaluation_results
+
+[Previous code remains the same until process_sql_file method, where we update the evaluation logging part:]
+
+        # Evaluate predictions
+        evaluation = self.evaluate_predictions(config['master_csv'], output_csv)
+        
+        logger.info("\nEvaluation Results:")
+        logger.info("==================")
+        
+        logger.info("\nOverall Metrics:")
+        for metric, value in evaluation['Overall Metrics'].items():
+            if 'Percentage' in metric or 'Accuracy' in metric:
+                logger.info(f"{metric}: {value:.2f}%")
+            else:
+                logger.info(f"{metric}: {value}")
+                
+        logger.info("\nSingle Prediction Cases:")
+        for metric, value in evaluation['Single Prediction Cases'].items():
+            if 'Accuracy' in metric:
+                logger.info(f"{metric}: {value:.2f}%")
+            else:
+                logger.info(f"{metric}: {value}")
+                
+        logger.info("\nMultiple Prediction Cases:")
+        for metric, value in evaluation['Multiple Prediction Cases'].items():
+            if 'Accuracy' in metric:
+                logger.info(f"{metric}: {value:.2f}%")
+            else:
+                logger.info(f"{metric}: {value}")
+        
+        logger.info("\nFailure Summary:")
+        if evaluation['Failures']:
+            failure_types = {}
+            for failure in evaluation['Failures']:
+                ftype = failure['failure_type']
+                if ftype not in failure_types:
+                    failure_types[ftype] = []
+                failure_types[ftype].append(failure['input_attribute'])
+            
+            for ftype, attributes in failure_types.items():
+                logger.info(f"\n{ftype}:")
+                for attr in attributes:
+                    logger.info(f"- {attr}")
+        else:
+            logger.info("No failures detected")
+
+
+
+
+
+
+
+[Previous code remains exactly the same until the evaluate_predictions method, which is replaced with below]
+
+    def evaluate_predictions(self, master_csv: str, predictions_csv: str) -> Dict:
+        """
         Evaluate predictions against master data, handling both single and multiple prediction cases.
         Returns detailed accuracy metrics.
         """
