@@ -1,3 +1,43 @@
+def analyze_master_data(self, df: pd.DataFrame) -> Tuple[int, int]:
+        """
+        Analyze master data to count attributes with same/different sensitivity and concept.
+        Uses cleaned attribute names for analysis.
+        """
+        # Create cleaned attribute column if not exists
+        if 'cleaned_attribute' not in df.columns:
+            df['cleaned_attribute'] = df['attribute'].apply(clean_attribute_name)
+        
+        # Group by cleaned attribute to get unique combinations
+        sensitivity_concept_by_attr = {}
+        
+        for _, row in df.iterrows():
+            cleaned_attr = row['cleaned_attribute']
+            if cleaned_attr not in sensitivity_concept_by_attr:
+                sensitivity_concept_by_attr[cleaned_attr] = set()
+            
+            # Add tuple of (sensitivity, concept) to track unique combinations
+            sensitivity_concept_by_attr[cleaned_attr].add((row['sensitivity'], row['concept']))
+        
+        # Count attributes with same/different variations
+        same_count = sum(1 for combinations in sensitivity_concept_by_attr.values() if len(combinations) == 1)
+        different_count = sum(1 for combinations in sensitivity_concept_by_attr.values() if len(combinations) > 1)
+        
+        logger.info(f"Attributes with same sensitivity/concept (after cleaning): {same_count}")
+        logger.info(f"Attributes with different sensitivity/concept (after cleaning): {different_count}")
+        
+        # Print details of attributes with different variations
+        if different_count > 0:
+            logger.info("\nAttributes with multiple variations:")
+            for attr, combinations in sensitivity_concept_by_attr.items():
+                if len(combinations) > 1:
+                    logger.info(f"\nCleaned Attribute: {attr}")
+                    for sens, conc in combinations:
+                        logger.info(f"  - Sensitivity: {sens}, Concept: {conc}")
+        
+        return same_count, different_count
+
+
+
 [Previous code remains same until process_batch method, which is replaced with below]
 
     def process_batch(self, batch: List[Tuple[str, str]]) -> List[ColumnPrediction]:
