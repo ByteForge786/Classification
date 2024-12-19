@@ -1,3 +1,49 @@
+from sentence_transformers import SentenceTransformer
+import pandas as pd
+import numpy as np
+import faiss
+from pathlib import Path
+import logging
+from typing import List, Dict, Tuple
+import sqlparse
+import re
+from dataclasses import dataclass
+import csv
+from tqdm import tqdm
+import ast
+import sys
+
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+def clean_attribute_name(attr) -> str:
+    """Clean attribute name by removing special characters and converting to lowercase."""
+    # Convert to string if numeric
+    if isinstance(attr, (int, float)):
+        attr = str(attr)
+    elif attr is None:
+        return ''
+    
+    # Ensure we're working with a string
+    try:
+        attr = str(attr)
+    except Exception as e:
+        logger.error(f"Error converting attribute to string: {attr}, type: {type(attr)}, error: {e}")
+        return ''
+    
+    # Remove special characters like [(._ etc
+    cleaned = re.sub(r'[\[\]\(\)\.\,\_\{\}\$\#\@\!\?\:\;\&\*\+\-\=]', '', attr)
+    # Convert to lowercase and strip whitespace
+    return cleaned.lower().strip()
+
+[Rest of the code remains exactly the same as in the previous artifact]
+
+
+
 def _preprocess_text(self, texts: List[str], is_training: bool = False) -> np.ndarray:
     """Create combined embeddings using SBERT and TF-IDF."""
     # Get SBERT embeddings
